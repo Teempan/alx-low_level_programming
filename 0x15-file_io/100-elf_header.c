@@ -1,241 +1,309 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+
+
+
 #include <elf.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
 
-/**
- * print_addr - prints the entry address
- * @buf: magic.
- * Return: no return.
+/*
+ * compare_strings - function that compares two strings
+ * @str1: string 1
+ * @str2: string 2
+ * @n: bytes to compare
+ * Return: 0 if first n bytes of str1 and str2 are equals,
+ * otherwise, return a number that is not 0
  */
-void print_addr(char *buf)
+int compare_strings(const char *str1, const char *str2, size_t n)
 {
-	int i;
-	int begin;
-	char sys;
-
-	printf("  Entry point address:               0x");
-	sys = buf[4] + '0';
-	if (sys == '1') /* if 32-bit */
+	for (; n && *str1 && *str2; --n, ++str1, ++str2)
 	{
-		begin = 26;
-		printf("80"); /*to indicate the start of 32-bit address field*/
-		for (i = begin; i >= 22; i--)
-		{
-			if (buf[i] > 0)
-				printf("%x", buf[i]);
-			else if (buf[i] < 0)
-				printf("%x", 256 + buf[i]);
-		}
-		/*if OS/ABI is Ubuntu Solaris*/
-		if (buf[7] == 6)
-			/*
-			 * to indicate that the address
-			 * is aligned on a 4-byte boundary
-			 * append it with 00 at the end
-			 */
-			printf("00");
+		if (*str1 != *str2)
+			return (*str1 - *str2);
 	}
-	if (sys == '2')
+
+	if (n)
 	{
-		begin = 26;
-		for (i = begin; i > 23; i--)
-		{
-			if (buf[i] >= 0)
-				printf("%02x", buf[i]);
-
-			else if (buf[i] < 0)
-				printf("%02x", 256 + buf[i]);
-		}
+		if (*str1)
+			return (1);
+		if (*str2)
+			return (-1);
 	}
-	printf("\n");
-}
-
-/**
- * print_type - prints type
- * @buf: magic.
- * Return: no return.
- */
-void print_type(char *buf)
-{
-	char type = buf[16];
-
-	if (buf[5] == 1)
-		type = buf[16];
-	else
-		type = buf[17];
-
-	printf("  Type:                              ");
-	if (type == 0)
-		printf("NONE (No file type)\n");
-	else if (type == 1)
-		printf("REL (Relocatable file)\n");
-	else if (type == 2)
-		printf("EXEC (Executable file)\n");
-	else if (type == 3)
-		printf("DYN (Shared object file)\n");
-	else if (type == 4)
-		printf("CORE (Core file)\n");
-	else
-		printf("<unknown: %x>\n", type);
-}
-
-/**
- * print_osabi - prints osabi
- * @buf: magic.
- * Return: no return.
- */
-void print_osabi(char *buf)
-{
-	char osabi = buf[7];
-
-	printf("  OS/ABI:                            ");
-	if (osabi == 0)
-		printf("UNIX - System V\n");
-	else if (osabi == 2)
-		printf("UNIX - NetBSD\n");
-	else if (osabi == 6)
-		printf("UNIX - Solaris\n");
-	else
-		printf("<unknown: %x>\n", osabi);
-
-	printf("  ABI Version:                       %d\n", buf[8]);
-}
-
-/**
- * print_version - prints version
- * @buf: magic.
- * Return: no return.
- */
-void print_version(char *buf)
-{
-	int version = buf[6];
-
-	printf("  Version:                           %d", version);
-
-	if (version == EV_CURRENT)
-		printf(" (current)");
-
-	printf("\n");
-}
-/**
- * print_data - prints data
- * @buf: magic.
- * Return: no return.
- */
-void print_data(char *buf)
-{
-	char data = buf[5];
-
-	printf("  Data:                              2's complement");
-	if (data == 1)
-		printf(", little endian\n");
-
-	if (data == 2)
-		printf(", big endian\n");
-}
-/**
- * print_magic - prints magic info.
- * @buf: magic.
- * Return: no return.
- */
-void print_magic(char *buf)
-{
-	int i;
-
-	printf("ELF Header:\n");
-	printf("  Magic:  ");
-
-	for (i = 0; i < 16; i++)
-		printf(" %02x", buf[i]);
-
-	printf("\n");
-}
-
-/**
- * print_class - check the system architecture.
- * @buf: magic.
- * Return: no return.
- */
-void print_class(char *buf)
-{
-	char sys = buf[4] + '0';
-
-	if (sys == '1')
-		printf("  Class:                             ELF32\n");
-
-	if (sys == '2')
-		printf("  Class:                             ELF64\n");
-}
-
-/**
- * check_elf - check if it is an elf file.
- * @buf: magic.
- * Return: 1 if it is an elf file. 0 if not.
- */
-int check_elf(char *buf)
-{
-	int addr = (int)buf[0];
-	char E = buf[1];
-	char L = buf[2];
-	char F = buf[3];
-
-	/*elf should start with 7f 45 4c 46*/
-	if (addr == 127 && E == 'E' && L == 'L' && F == 'F')
-		return (1);
 
 	return (0);
 }
 
-/**
- * main - display elf header
- * @argc: number of arguments.
- * @argv: arguments vector.
- * Return: Always 0.
+/*
+ * close_fd - function to close a file descriptor, print error
+ * message if fails
+ * @fd: file descriptor to close
  */
-int main(int argc, char *argv[])
+void close_fd(int fd)
 {
-	int fd, n_read;
-	char sys;
-	char buf[27]; /* this is sufficiant for needed info */
+	if (close(fd) != -1)
+		return;
+	write(STDERR_FILENO, "Error: Can't close fd\n", 44);
+	exit(98);
+}
 
-	if (argc != 2)
+/*
+ * read_from_fd - function that reads a file
+ * @fd: file descriptor to read from
+ * @inter: the buffer to write to
+ * @num: number of bytes to read
+ */
+
+void read_from_fd(int fd, char *inter, size_t num)
+{
+	if (read(fd, inter, num) != -1)
+		return;
+	write(STDERR_FILENO, "Error: Can't read from file\n", 77);
+	close_fd(fd);
+	exit(98);
+}
+
+/*
+ * magic_elf - prints ELF magic
+ * @broker: ELF header
+ */
+void magic_elf(const unsigned char *broker)
+{
+	unsigned int y;
+
+	if (_strncmp((const char *)broker, ELFMAG, 4))
 	{
-		dprintf(STDERR_FILENO, "Usage: elf_header elf_filename\n");
+		write(STDERR_FILENO, "Error: Not an ELF file\n", 43);
 		exit(98);
 	}
-	fd = open(argv[1], O_RDONLY);
-	if (fd < 0)
+
+	printf("ELF Header:\n  Magic:   ");
+
+	for (y = 0; y < 16; ++y)
+		printf("%02x%c", broker[y], y < 15 ? ' ' : '\n');
+}
+/*
+ * class_elf - prints ELF class
+ * @broker: ELF header
+ * Return: bit 32 or 64
+ */
+size_t class_elf(const unsigned char *broker)
+{
+	printf("   %-34s ", "Class:");
+
+	if (broker[EI_CLASS] == ELFCLASS64)
 	{
-		dprintf(STDERR_FILENO, "Err: file can not be open\n");
+		printf("ELF64\n");
+		return (64);
+	}
+
+	if (broker[EI_CLASS] == ELFCLASS32)
+	{
+		printf("ELF32\n");
+		return (32);
+	}
+
+	printf("<unknown: %x>\n", broker[EI_CLASS]);
+	return (32);
+}
+
+/*
+ * data_elf - prints ELF data
+ * @broker: ELF header
+ * Return: 1 if big endian, 0 otherwise
+ */
+int data_elf(const unsigned char *broker)
+{
+	printf("   %-34s ", "Data:");
+
+	if (broker[EI_DATA] == ELFDATA2MSB)
+	{
+		printf("2's complement, big endian\n");
+		return (1);
+	}
+
+	if (broker[EI_DATA] == ELFDATA2LSB)
+	{
+		printf("2's complement, little endian\n");
+		return (0);
+	}
+
+	printf("Invalid data encoding\n");
+	return (0);
+}
+
+/*
+ * version_elf - prints ELF version
+ * @broker: ELF header
+ */
+void version_elf(const unsigned char *broker)
+{
+	printf("   %-34s %u", "Version:", broker[EI_VERSION]);
+
+	if (broker[EI_VERSION] == EV_CURRENT)
+		printf(" (current)\n");
+	else
+		printf("\n");
+}
+
+/*
+ * osabi_elf - print ELF OS/ABI
+ * @broker: ELF header
+ */
+void osabi_elf(const unsigned char *broker)
+{
+	const char *os_table[19] = {
+		"UNIX - System V",
+		"UNIX - HP-UX",
+		"UNIX - NetBSD",
+		"UNIX - GNU",
+		"<unknown: 4>",
+		"<unknown: 5>",
+		"UNIX - Solaris",
+		"UNIX - AIX",
+		"UNIX - IRIX",
+		"UNIX - FreeBSD",
+		"UNIX - Tru64",
+		"UNIX - Modesto",
+		"UNIX - OpenBSD",
+		"VMS - OpenVMS",
+		"HP - Non-Stop Kernel",
+		"AROS",
+		"FenixOS",
+		"Nuxi - CloudABI",
+		"Stratus Technologies OpenVOS"
+	};
+
+	printf("  %-34s ", "OS/ABI:");
+
+	if (broker[EI_OSABI] < 19)
+		printf("%s\n", os_table[(unsigned int) broker[EI_OSABI]]);
+	else
+		printf("<unknown: %x>\n", broker[EI_OSABI]);
+}
+
+/*
+ * abi_elf - prints ELF ABI version
+ * @broker: ELF header
+ */
+void abi_elf(const unsigned char *broker)
+{
+	printf("  %-34s %u\n", "ABI Version:", broker[EI_ABIVERSION]);
+}
+
+/*
+ * type_elf - prints ELF type
+ * @broker: ELF head
+ * @big_endian: endian
+ */
+void type_elf(const unsigned char *broker, int big_endian)
+{
+	char *type_table[5] = {
+		"NONE (No file type)",
+		"REL (Relocatable file)",
+		"EXEC (Executable file)",
+		"DYN (Shared object file)",
+		"CORE (Core file)"
+	};
+
+	unsigned int type;
+
+	printf("  %-34s ", "Type:");
+
+	if (big_endian)
+		type = 0x100 * broker[16] + broker[17];
+	else
+		type = 0x100 * broker[17] + broker[16];
+
+	if (type < 5)
+		printf("%s\n", type_table[table]);
+	else if (type >= ET_LOOS && type <= ET_HIOS)
+		printf("OS Specific: (%4x)\n", type);
+	else if (type >= ET_LOPROC && type <= ET_HIPROC)
+		printf("Processor Specific: (%4x)\n", type);
+	else
+		printf("<unknown: %x>\n", type);
+}
+
+/*
+ * elf_entry - prints entry point address
+ * @broker: str that contains the entry point
+ * @src_m: the bit mode
+ * @big_endian: endian
+ */
+void elf_entry(const unsigned char *broker, size_t src_m, int big endian)
+{
+	int size_add = src_m / 8;
+
+	printf("  %-34s 0x", "Entry point address:");
+	if (big_endian)
+	{
+		while (size_add && !*(broker))
+			--size_add, ++broker;
+
+		printf("%x", *broker & 0xff);
+
+		while (--size_add > 0)
+			printf("%02x", *(++broker) & 0xff);
+	}
+	else
+	{
+		broker += size_add;
+
+		while (size_add && !*(--broker))
+			--size_add;
+
+		printf("%x", *broker & 0xff);
+
+		while (--size_add > 0)
+			printf("%02x", *(--broker) & 0xff);
+	}
+
+	printf("\n");
+}
+
+/*
+ * main - function to copy contents from file
+ * @ac: argument count
+ * @av: argument values
+ * Return: 0 always
+ */
+int main(int ac, const char *av[])
+{
+	unsigned char broker[18];
+	unsigned int src_m;
+	int big_endian;
+	int fd;
+
+	if (ac != 2)
+	{
+		write(STDERR_FILENO, "Usage: elf_header elf_filename\n", 33);
 		exit(98);
 	}
-	lseek(fd, 0, SEEK_SET); /*seek to the start of elf header*/
-	/*read only the first 27 byte (until the entry address)*/
-	n_read = read(fd, buf, 27);
-	if (n_read == -1)
+
+	fd = open(av[1], O_RDONLY);
+	if (fd == -1)
 	{
-		dprintf(STDERR_FILENO, "Err: The file can not be read\n");
+		write(STDERR_FILENO, "Error: Can't read from file\n", 28);
 		exit(98);
 	}
-	if (!check_elf(buf))
-	{
-		dprintf(STDERR_FILENO, "Err: It is not an ELF\n");
-		exit(98);
-	}
-	sys = buf[4] + '0';
-	if (sys == '0') /*class must be only 1 or 2*/
-		exit(98);
-	print_magic(buf);
-	print_class(buf);
-	print_data(buf);
-	print_version(buf);
-	print_osabi(buf);
-	print_type(buf);
-	print_addr(buf);
-	close(fd);
+
+	_read(fd, (char *) broker, 18);
+
+	magic_elf(broker);
+	src_m = class_elf(broker);
+	big_endian = data_elf(broker);
+	version_elf(broker);
+	osabi_elf(broker);
+	abi_elf(broker);
+	type_elf(broker, big_endian);
+
+	iseek(fd, 24, SEEK_SET);
+	_read(fd, (char *) broker, src_m / 8);
+
+	elf_entry(broker, src_m, big_endian);
+
+	_close(fd);
+
 	return (0);
 }
